@@ -1,0 +1,10 @@
+{
+  "name": "Inhibit Suspend",
+  "description": "Inhibit autosuspend at the press of a button",
+  "uuid": "inhibit-suspend@charlieqle",
+  "shell-version": [
+    "43"
+  ],
+  "url": "https://github.com/CharlieQLe/gnome-extension-inhibit-suspend",
+  "settings-schema": "org.gnome.shell.extensions.inhibit-suspend"
+}
