@@ -46,11 +46,66 @@ const DBusSessionManagerInhibitorXml = `
 </node>`;
 const DBusSessionManagerInhibitorProxy = Gio.DBusProxy.makeProxyWrapper(DBusSessionManagerInhibitorXml);
 
-class InhibitData {
-    constructor(appId, cookie, object) {
-        this.appId = appId;
-        this.cookie = cookie;
-        this.object = object;
+class Inhibitors {
+    constructor() {
+        this._lastAppId = '';
+        this._lastCookie = '';
+        this._appIds = [];
+        this._cookies = [];
+        this._objects = [];
+    }
+
+    get lastAppId() {
+        return this._lastAppId;
+    }
+
+    get lastCookie() {
+        return this._lastCookie;
+    }
+
+    get numOfInhibitors() {
+        return this._appIds.length;
+    }
+
+    setLastAppIdAndCookie(appId, cookie) {
+        this._lastAppId = appId;
+        this._lastCookie = cookie;
+    }
+
+    addInhibitor(appId, cookie, object) {
+        this._appIds.push(appId);
+        this._cookies.push(cookie);
+        this._objects.push(object);
+    }
+
+    getInhibitor(index) {
+        return {
+            appId: this._appIds[index],
+            cookie: this._cookies[index],
+            object: this._objects[index]
+        }
+    }
+
+    removeInhibitorAtIndex(index) {
+        this._appIds.splice(index, 1);
+        this._cookies.splice(index, 1);
+        this._objects.splice(index, 1);
+    }
+
+    indexOfAppId(appId) {
+        return this._appIds.indexOf(appId);
+    }
+
+    indexOfObject(object) {
+        return this._objects.indexOf(object);
+    }
+
+    includesFullscreen() {
+        return this._appIds.includes(FULLSCREEN_APP_ID)
+    }
+
+    forEachAppId(func) {
+        this._appIds.forEach(func);
     }
 }
 
@@ -73,8 +128,7 @@ class InhibitSuspendToggle extends QuickSettings.QuickToggle {
         
         // Data
         this._state = false;
-        this._last_data = new InhibitData('', '', null);
-        this._data = [];
+        this._inhibitors = new Inhibitors();
 
         // Screen
         this._fullscreenId = global.display.connect('in-fullscreen-changed', this._handleFullscreen.bind(this));
@@ -127,31 +181,26 @@ class InhibitSuspendToggle extends QuickSettings.QuickToggle {
     }
 
     _handleFullscreen() {
-        const includeFullscreen = () => this._data.reduce((includes, element) => includes || element.appId === FULLSCREEN_APP_ID, false);
-
         MainLoop.timeout_add_seconds(2, () => {
-            if (this._isFullscreen() && !includeFullscreen()) this._addInhibitor(FULLSCREEN_APP_ID);
+            if (this._isFullscreen() && !this._inhibitors.includesFullscreen()) this._addInhibitor(FULLSCREEN_APP_ID);
         });
 
-        if (!this._isFullscreen() && includeFullscreen()) this._removeInhibitor(FULLSCREEN_APP_ID);
+        if (!this._isFullscreen() && this._inhibitors.includesFullscreen()) this._removeInhibitor(FULLSCREEN_APP_ID);
     }
 
     _updateState() {
         this.checked = false;
-        if (this._state) this._data.forEach(data => this._removeInhibitor(data.appId));
+        if (this._state) this._inhibitors.forEachAppId(appId => this._removeInhibitor(appId));
         else this._addInhibitor(FORCE_ENABLE_APP_ID);
     }
 
     _addInhibitor(appId) {
-        this._sessionManager.InhibitRemote(appId, 0, 'Inhibit by %s'.format("Inhibit Suspend Extension"), 12, cookie => {
-            this._last_data.appId = appId;
-            this._last_data.cookie = cookie;
-        });
+        this._sessionManager.InhibitRemote(appId, 0, 'Inhibit by %s'.format("Inhibit Suspend Extension"), 12, cookie => this._inhibitors.setLastAppIdAndCookie(appId, cookie));
     }
 
     _removeInhibitor(appId) {
-        const index = this._data.reduce((idx, element, i) => (idx === -1 && element.appId === appId) ? i : idx, -1);
-        if (index !== -1) this._sessionManager.UninhibitRemote(this._data[index].cookie);
+        const index = this._inhibitors.indexOfAppId(appId);
+        if (index !== -1) this._sessionManager.UninhibitRemote(this._inhibitors.getInhibitor(index).cookie);
     }
 
     _inhibitorAdded(proxy, sender, [object]) {
@@ -160,10 +209,9 @@ class InhibitSuspendToggle extends QuickSettings.QuickToggle {
                 const inhibitor = new DBusSessionManagerInhibitorProxy(Gio.DBus.session, 'org.gnome.SessionManager', i);
                 inhibitor.GetAppIdRemote(appId => {
                     appId = String(appId);
-                    if (appId !== '' && appId === this._last_data.appId) {
-                        this._data.push(new InhibitData(this._last_data.appId, this._last_data.cookie, object));
-                        this._last_data.appId = '';
-                        this._last_data.cookie = '';
+                    if (appId !== '' && appId === this._inhibitors.lastAppId) {
+                        this._inhibitors.addInhibitor(this._inhibitors.lastAppId, this._inhibitors.lastCookie, object);
+                        this._inhibitors.setLastAppIdAndCookie('', '');
                         if (this._state === false) {
                             this._state = true;
                             this.checked = true;
@@ -176,10 +224,10 @@ class InhibitSuspendToggle extends QuickSettings.QuickToggle {
     }
 
     _inhibitorRemoved(proxy, sender, [object]) {
-        const index = this._data.reduce((idx, element, i) => (idx === -1 && element.object === object) ? i : idx, -1);
+        const index = this._inhibitors.indexOfObject(object);
         if (index !== -1) {
-            this._data.splice(index, 1);
-            if (this._data.length === 0) {
+            this._inhibitors.removeInhibitorAtIndex(index);
+            if (this._inhibitors.numOfInhibitors === 0) {
                 this._state = false;
                 this.checked = false;
                 this._invokeSignal(this._onDisableInhibit);
