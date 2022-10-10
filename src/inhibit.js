@@ -181,8 +181,9 @@ class InhibitSuspendToggle extends QuickSettings.QuickToggle {
     }
 
     _handleFullscreen() {
-        MainLoop.timeout_add_seconds(2, () => {
+        const signal = MainLoop.timeout_add_seconds(2, () => {
             if (this._isFullscreen() && !this._inhibitors.includesFullscreen()) this._addInhibitor(FULLSCREEN_APP_ID);
+            MainLoop.source_remove(signal);
         });
 
         if (!this._isFullscreen() && this._inhibitors.includesFullscreen()) this._removeInhibitor(FULLSCREEN_APP_ID);
