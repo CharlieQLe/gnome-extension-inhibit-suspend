@@ -137,6 +137,7 @@ class InhibitSuspendToggle extends QuickSettings.QuickToggle {
         this.connect('clicked', () => this._updateState());
         this.connect('destroy', () => {
             if (this._fullscreenId) global.display.disconnect(this._fullscreenId);
+            if (this._fullscreenTimeoutId) MainLoop.source_remove(this._fullscreenTimeoutId);
         });
         this._onEnableInhibit = [];
         this._onDisableInhibit = [];
@@ -181,9 +182,9 @@ class InhibitSuspendToggle extends QuickSettings.QuickToggle {
     }
 
     _handleFullscreen() {
-        const signal = MainLoop.timeout_add_seconds(2, () => {
+        this._fullscreenTimeoutId = MainLoop.timeout_add_seconds(2, () => {
             if (this._isFullscreen() && !this._inhibitors.includesFullscreen()) this._addInhibitor(FULLSCREEN_APP_ID);
-            MainLoop.source_remove(signal);
+            if (this._fullscreenTimeoutId) MainLoop.source_remove(this._fullscreenTimeoutId);
         });
 
         if (!this._isFullscreen() && this._inhibitors.includesFullscreen()) this._removeInhibitor(FULLSCREEN_APP_ID);
